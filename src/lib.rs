@@ -383,7 +383,7 @@ impl<'a> Default for Builder<'a> {
             "strike", "strong", "sub", "summary", "sup", "table", "tbody",
             "td", "th", "thead", "time", "tr", "tt", "u", "ul", "var", "wbr"
         ];
-        let clean_content_tags = hashset!["script", "style"];
+        let clean_content_tags = hashset!["script", "style", "template"];
         let generic_attributes = hashset!["lang", "title"];
         let tag_attributes = hashmap![
             "a" => hashset![
@@ -601,7 +601,7 @@ impl<'a> Builder<'a> {
     /// # Defaults
     ///
     /// ```notest
-    /// script, style
+    /// script, style, template
     /// ```
     pub fn clean_content_tags(&mut self, value: HashSet<&'a str>) -> &mut Self {
         self.clean_content_tags = value;
@@ -1818,9 +1818,19 @@ impl<'a> Builder<'a> {
             if pass {
                 self.adjust_node_attributes(&mut node, &link_rel, self.id_prefix);
                 dom.append(&parent.clone(), NodeOrText::AppendNode(node.clone()));
+                if let NodeData::Element { ref template_contents, .. } = node.data {
+                    if let Some(child) = &mut *template_contents.borrow_mut() {
+                        child.parent.replace(Some(Rc::downgrade(&node)));
+                    }
+                }
             } else {
                 for sub in node.children.borrow_mut().iter_mut() {
                     sub.parent.replace(Some(Rc::downgrade(&parent)));
+                }
+                if let NodeData::Element { ref template_contents, .. } = node.data {
+                    if let Some(child) = &mut *template_contents.borrow_mut() {
+                        child.parent.replace(Some(Rc::downgrade(&parent)));
+                    }
                 }
             }
             stack.extend(
@@ -1828,6 +1838,9 @@ impl<'a> Builder<'a> {
                     .into_iter()
                     .rev(),
             );
+            if let NodeData::Element { ref template_contents, .. } = node.data {
+                stack.extend(mem::take(&mut *template_contents.borrow_mut()).into_iter());
+            }
             if !pass {
                 removed.push(node);
             }
